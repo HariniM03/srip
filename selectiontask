@@ -1,0 +1,99 @@
+import os
+import shutil
+from sklearn.model_selection import train_test_split
+
+# Set the path to the downloaded dataset
+dataset_path = 'C:\\Users\\harin\\Downloads\\archive\\animals\\animals'
+train_path = 'C:\\Users\\harin\\Downloads\\archive\\train'
+val_path = 'C:\\Users\\harin\\Downloads\\archive\\val'
+
+# Create folders for one-vs-rest classification
+for class_name in os.listdir(dataset_path):
+    class_folder_path = os.path.join(dataset_path, class_name)
+
+    # Check if it's a directory
+    if os.path.isdir(class_folder_path):
+        os.makedirs(os.path.join(dataset_path, f'{class_name}_vs_rest'), exist_ok=True)
+
+        # Move images to respective folders for one-vs-rest classification
+        for img in os.listdir(class_folder_path):
+            img_path = os.path.join(class_folder_path, img)
+            shutil.move(img_path, os.path.join(dataset_path, f'{class_name}_vs_rest'))
+
+# Split data into train and validation sets
+for class_name in os.listdir(dataset_path):
+    class_folder_path = os.path.join(dataset_path, class_name)
+    images = os.listdir(class_folder_path)
+
+    # Check if there are enough images for splitting
+    if len(images) >= 2:  # Adjust this threshold based on your dataset
+        train_images, val_images = train_test_split(images, test_size=0.2, random_state=42)
+
+        os.makedirs(os.path.join(train_path, class_name), exist_ok=True)
+        os.makedirs(os.path.join(val_path, class_name), exist_ok=True)
+
+        for img in train_images:
+            shutil.move(os.path.join(class_folder_path, img), os.path.join(train_path, class_name))
+
+        for img in val_images:
+            shutil.move(os.path.join(class_folder_path, img), os.path.join(val_path, class_name))
+import tensorflow as tf
+from tensorflow.keras import layers, models
+
+# Constants
+image_size = (224, 224)  # Adjust based on your image size
+num_classes = len(os.listdir(train_path))
+
+# Define your custom CNN model
+model = models.Sequential()
+model.add(layers.Conv2D(32, (3, 3), activation='relu', input_shape=(image_size[0], image_size[1], 3)))
+model.add(layers.MaxPooling2D((2, 2)))
+model.add(layers.Conv2D(64, (3, 3), activation='relu'))
+model.add(layers.MaxPooling2D((2, 2)))
+model.add(layers.Flatten())
+model.add(layers.Dense(128, activation='relu'))
+model.add(layers.Dense(num_classes, activation='softmax'))
+
+# Compile the model
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Constants
+batch_size = 32
+epochs = 10  # You can adjust the number of epochs based on model performance
+
+# Data Augmentation for the training set
+train_datagen = ImageDataGenerator(rescale=1./255, shear_range=0.2, zoom_range=0.2, horizontal_flip=True)
+train_generator = train_datagen.flow_from_directory(train_path, target_size=image_size, batch_size=batch_size, class_mode='categorical')
+
+# Validation set without data augmentation
+val_datagen = ImageDataGenerator(rescale=1./255)
+val_generator = val_datagen.flow_from_directory(val_path, target_size=image_size, batch_size=batch_size, class_mode='categorical')
+
+# Train the model
+model.fit(train_generator, epochs=epochs, validation_data=val_generator)
+
+# Evaluate the model
+model.evaluate(val_generator)
+# Import libraries for visualization
+import matplotlib.pyplot as plt
+
+# Choose an image for visualization
+sample_img = os.path.join(train_path, os.listdir(os.path.join(train_path, os.listdir(train_path)[0]))[0])
+img = tf.keras.preprocessing.image.load_img(sample_img, target_size=image_size)
+img_array = tf.keras.preprocessing.image.img_to_array(img)
+img_array = tf.expand_dims(img_array, 0)
+
+# Visualize convolutional layers
+layer_outputs = [layer.output for layer in model.layers]
+activation_model = tf.keras.models.Model(inputs=model.input, outputs=layer_outputs)
+activations = activation_model.predict(img_array)
+
+# Plot the outputs of convolutional layers
+layer_names = [layer.name for layer in model.layers]
+
+for i in range(len(activations)):
+    if 'conv2d' in layer_names[i].lower():
+        plt.figure()
+        plt.matshow(activations[i][0, :, :, 1], cmap='viridis')  # Choose channel to visualize
+        plt.title(layer_names[i])
